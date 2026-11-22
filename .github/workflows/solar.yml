@@ -1,0 +1,40 @@
+name: Solar park watchdog
+on:
+  schedule:
+    - cron: "*/15 3-19 * * *"     # every 15 min, 03-19 UTC; night skipped by sun-elevation check
+  workflow_dispatch:
+    inputs:
+      test:
+        description: "Send a test Telegram message"
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: solar-watchdog
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Run check
+        env:
+          FIMER_USER: ${{ secrets.FIMER_USER }}
+          FIMER_PASSWORD: ${{ secrets.FIMER_PASSWORD }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          IGNORE_INVERTERS: "111747"
+          PRICE_THRESHOLD: "19"
+        run: python solar_monitor.py ${{ inputs.test && '--test' || '' }}
+      - name: Save alert state
+        run: |
+          git config user.name "solar-watchdog"
+          git config user.email "actions@github.com"
+          git add solar_state.json
+          git diff --cached --quiet || (git commit -m "state" -q && git pull --rebase -q && git push -q)
