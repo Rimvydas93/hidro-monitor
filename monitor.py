@@ -10,6 +10,8 @@ import json, os, sys, urllib.parse, urllib.request
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import quiet
+
 PLANT = "69"
 API = "https://hidro.biip.lt/api/events/all"
 PUBLISH_DELAY = timedelta(minutes=25)   # reading for hour H appears at H+25 min
@@ -58,13 +60,20 @@ def level_text(last):
     return f"viršutinis bjefas {m(last['upperBasin'])}, apatinis {m(last['lowerBasin'])}"
 
 
-def send(text):
+def _raw_send(text):
     if os.environ.get("DRY_RUN"):
         print("TELEGRAM:", text)
         return
     data = urllib.parse.urlencode({"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": text}).encode()
     url = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage"
     urllib.request.urlopen(urllib.request.Request(url, data=data), timeout=30).read()
+
+
+HELD_FILE = "held_hidro.json"
+
+
+def send(text, force=False):
+    quiet.deliver(text, _raw_send, HELD_FILE, force=force)
 
 
 def load_state():
@@ -131,6 +140,7 @@ def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "check"
     now = datetime.now(timezone.utc)
     events = fetch(now)
+    quiet.flush(_raw_send, HELD_FILE)
     if mode == "summary":
         send(summary(events, now))
     else:
