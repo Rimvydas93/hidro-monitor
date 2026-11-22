@@ -43,12 +43,21 @@ STATE_FILE = os.environ.get("STATE_FILE", "solar_state.json")
 S = requests.Session()
 S.headers["User-Agent"] = "Mozilla/5.0 (solar-watchdog)"
 
+import quiet  # noqa: E402
 
-def tg(text):
+
+def _raw_tg(text):
     r = requests.post(f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage",
                       data={"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": text, "parse_mode": "HTML"},
                       timeout=20)
     print("telegram:", r.status_code, r.text[:80])
+
+
+HELD_FILE = "held_solar.json"
+
+
+def tg(text, force=False):
+    quiet.deliver(text, _raw_tg, HELD_FILE, force=force)
 
 
 def sun_elevation(dt):
@@ -303,6 +312,10 @@ def main():
     now = datetime.now(timezone.utc)
     elev = sun_elevation(now)
     state = load_state()
+    try:
+        quiet.flush(_raw_tg, HELD_FILE)
+    except Exception as e:
+        print("flush error", e)
     daily = "--daily" in sys.argv
 
     try:
@@ -358,5 +371,5 @@ def main():
 
 if __name__ == "__main__":
     if "--test" in sys.argv:
-        tg("🔔 Kairiškiai solar watchdog connected (v2: sun check, stale data, missing inverters, daily table).")
+        tg("🔔 Kairiškiai solar watchdog connected (v2: sun check, stale data, missing inverters, daily table). Quiet hours 21:00–07:00 active.", force=True)
     main()
