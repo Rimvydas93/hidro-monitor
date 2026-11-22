@@ -66,11 +66,6 @@ jobs:
           n=0
           while [ "$(date +%s)" -lt "$end" ]; do
             python solar_monitor.py || echo "check failed"
-            t=$(date -u +%-H%M); today=$(date -u +%F)
-            if [ "$t" -ge 1805 ] && [ "$t" -lt 1900 ] && [ "$(cat solar_daily_done.txt 2>/dev/null)" != "$today" ]; then
-              python solar_monitor.py --daily || echo "daily failed"
-              echo "$today" > solar_daily_done.txt
-            fi
             n=$((n+1))
             if [ $((n % 6)) -eq 0 ]; then save; fi
             if [ $((n % 3)) -eq 0 ]; then watch; fi
