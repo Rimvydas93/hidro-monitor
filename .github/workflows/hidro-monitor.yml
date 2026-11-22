@@ -1,0 +1,36 @@
+name: Hidro monitor
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # publication check
+    - cron: "0 5 * * *"      # daily summary, 05:00 UTC = 07:00 Vilnius (winter)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: check or summary
+        default: check
+permissions:
+  contents: write
+concurrency:
+  group: hidro-monitor
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MODE: ${{ github.event.schedule == '0 5 * * *' && 'summary' || github.event.inputs.mode || 'check' }}
+        run: python monitor.py "$MODE"
+      - name: Save state
+        run: |
+          git config user.name "hidro-monitor"
+          git config user.email "hidro-monitor@users.noreply.github.com"
+          git add state.json 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "state" && git push)
