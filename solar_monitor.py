@@ -193,7 +193,12 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
     should_run = p15 is not None and min(p15, phour) >= THRESHOLD   # controller may use 15-min or hourly price
     should_stop = p15 is not None and max(p15, phour) < THRESHOLD
     price = p15 if p15 is not None else 0.0
-    med_w = statistics.median([i["power"] for i in running]) if running else 0.0
+    sz = state.get("size", {})            # learned in the daily run: big inverters = 3, normal = 1
+
+    def size(i):
+        return sz.get(i["id"], 1.0)
+
+    med_w = statistics.median([i["power"] / size(i) for i in running]) if running else 0.0   # W per size unit
 
     # --- frozen data: the "Data time" text has not changed for STALE_MIN minutes ---------------------
     seen = state.setdefault("seen", {})
@@ -237,19 +242,19 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
     if should_run and day:
         down = [i for i in active if i not in running]
         if down:
-            lost_eur = len(down) * med_w / 1000 * price / 1000
+            lost_eur = sum(size(i) for i in down) * med_w / 1000 * price / 1000
             problems.append(("down:" + ",".join(sorted(i["id"] for i in down)),
                              f"{len(down)}/{len(active)} inverters NOT producing: "
                              + ", ".join(f"{i['id']} ({i['global'] or i['status']}; {i['alarm']})" for i in down)
                              + (f". Lost ≈ {lost_eur:.1f} €/h" if med_w > 500 else "")))
-        powers = sorted(i["power"] for i in running)
-        if len(powers) >= 4 and med_w > 500:
-            low = [i for i in running if i["power"] < LOW_RATIO * med_w]
+        if len(running) >= 4 and med_w > 500:
+            low = [i for i in running if i["power"] / size(i) < LOW_RATIO * med_w]
             if low:
-                lost_eur = sum(med_w - i["power"] for i in low) / 1000 * price / 1000
+                lost_eur = sum(med_w * size(i) - i["power"] for i in low) / 1000 * price / 1000
                 problems.append(("low:" + ",".join(sorted(i["id"] for i in low)),
                                  "Underperforming: " + ", ".join(
-                                     f"{i['id']} {i['power']/1000:.1f} kW vs median {med_w/1000:.1f}" for i in low)
+                                     f"{i['id']} {i['power']/1000:.1f} kW vs expected {med_w*size(i)/1000:.1f}"
+                                     for i in low)
                                  + f". Lost ≈ {lost_eur:.1f} €/h"))
     if should_stop and total > 1000 and day:
         problems.append(("not_stopped",
@@ -262,25 +267,35 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
     return problems, report
 
 
-def daily_summary(invs, now):
-    """Evening league table: each inverter's energy today vs the median."""
+def daily_summary(invs, now, state):
+    """Evening league table: each inverter's energy today vs the typical one (scaled by its learned size)."""
     rows = [(i["id"], kwh(i["daily"])) for i in invs if i["id"] not in IGNORE]
     rows = [(a, b) for a, b in rows if b is not None]
     if not rows:
         return "📊 <b>Kairiškiai solar park</b> – daily summary: no energy values read from the portal."
-    vals = sorted(b for _, b in rows)
-    med = statistics.median(vals)
-    total = sum(vals)
-    flagged = [(a, b) for a, b in rows if med > 0 and b < LEAGUE_LOW * med]
+    sz = state.setdefault("size", {})
+    base = statistics.median(b for _, b in rows)
+    if base >= 5:                         # a real production day: learn which inverters are big (once)
+        for a, b in rows:
+            if a not in sz:
+                r = b / base
+                sz[a] = float(round(r)) if r >= 1.5 else 1.0
+    norm = {a: b / sz.get(a, 1.0) for a, b in rows}
+    nmed = statistics.median(norm.values())
+    total = sum(b for _, b in rows)
+    flagged = [(a, b) for a, b in rows if nmed > 0 and norm[a] < LEAGUE_LOW * nmed]
     lines = [f"📊 <b>Kairiškiai solar park</b> – {now.strftime('%Y-%m-%d')}",
-             f"Total {total:.0f} kWh · median inverter {med:.1f} kWh · "
-             f"best {vals[-1]:.1f} · worst {vals[0]:.1f}"]
+             f"Total {total:.0f} kWh · typical inverter {nmed:.1f} kWh · "
+             f"best {max(norm.values()):.1f} · worst {min(norm.values()):.1f}"]
+    big = sorted(a for a, v in sz.items() if v > 1.0)
+    if big:
+        lines.append("Big units (×size): " + ", ".join(f"{a} ×{sz[a]:.0f}" for a in big))
     if flagged:
-        lines.append("⚠️ Below {:.0f}% of median (dirty / shaded / faulty string?):".format(LEAGUE_LOW * 100))
-        for a, b in sorted(flagged, key=lambda x: x[1]):
-            lines.append(f"• {a}: {b:.1f} kWh ({b/med*100:.0f}%)")
+        lines.append("⚠️ Below {:.0f}% of expected (dirty / shaded / faulty string?):".format(LEAGUE_LOW * 100))
+        for a, b in sorted(flagged, key=lambda x: norm[x[0]]):
+            lines.append(f"• {a}: {b:.1f} kWh ({norm[a]/nmed*100:.0f}%)")
     else:
-        lines.append("✅ All inverters within {:.0f}% of the median.".format(LEAGUE_LOW * 100))
+        lines.append("✅ All inverters within {:.0f}% of expected.".format(LEAGUE_LOW * 100))
     return "\n".join(lines)
 
 
@@ -310,7 +325,7 @@ def main():
                   f"alarm='{i['alarm']}' power={i['power']:.0f}W daily='{i['daily']}'")
 
     if daily:
-        tg(daily_summary(invs, now) if invs is not None
+        tg(daily_summary(invs, now, state) if invs is not None
            else f"📊 Kairiškiai solar park – daily summary failed: {portal_error}")
         state["last_run"] = now.isoformat()
         json.dump(state, open(STATE_FILE, "w"), indent=1)
