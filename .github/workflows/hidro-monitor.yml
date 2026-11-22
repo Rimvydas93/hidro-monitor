@@ -1,22 +1,22 @@
 name: Hidro monitor
 on:
   schedule:
-    - cron: "*/15 * * * *"   # publication check
-    - cron: "0 5 * * *"      # daily summary, 05:00 UTC = 07:00 Vilnius (winter)
+    - cron: "23 * * * *"          # safety net: restarts the loop if it ever stopped
   workflow_dispatch:
     inputs:
       mode:
-        description: check or summary
-        default: check
+        description: loop (default), check or summary
+        default: loop
 permissions:
   contents: write
+  actions: write
 concurrency:
-  group: hidro-monitor
+  group: hidro-${{ (github.event.inputs.mode == 'check' || github.event.inputs.mode == 'summary') && 'manual' || 'loop' }}
   cancel-in-progress: false
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -26,11 +26,33 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MODE: ${{ github.event.schedule == '0 5 * * *' && 'summary' || github.event.inputs.mode || 'check' }}
-        run: python monitor.py "$MODE"
-      - name: Save state
+          MODE: ${{ github.event.inputs.mode || 'loop' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "hidro-monitor"
           git config user.email "hidro-monitor@users.noreply.github.com"
-          git add state.json 2>/dev/null || true
-          git diff --cached --quiet || (git commit -m "state" && git push)
+          save() {
+            git add state.json hidro_daily_done.txt 2>/dev/null || true
+            git diff --cached --quiet || (git commit -m "state" -q && git pull --rebase -q && git push -q) || true
+          }
+          if [ "$MODE" != "loop" ]; then
+            python monitor.py "$MODE" || true
+            save
+            exit 0
+          fi
+          # loop mode: queue the successor now (it waits for this run to end), then check every 5 min
+          gh workflow run hidro-monitor.yml || true
+          end=$(( $(date +%s) + 20400 ))
+          n=0
+          while [ "$(date +%s)" -lt "$end" ]; do
+            python monitor.py check || echo "check failed"
+            t=$(date -u +%-H%M); today=$(date -u +%F)
+            if [ "$t" -ge 500 ] && [ "$t" -lt 600 ] && [ "$(cat hidro_daily_done.txt 2>/dev/null)" != "$today" ]; then
+              python monitor.py summary || echo "summary failed"
+              echo "$today" > hidro_daily_done.txt
+            fi
+            n=$((n+1))
+            if [ $((n % 12)) -eq 0 ]; then save; fi
+            sleep 300
+          done
+          save
