@@ -39,6 +39,8 @@ STALE_MIN = int(os.environ.get("STALE_MIN", "40"))             # inverter data u
 LEAGUE_LOW = float(os.environ.get("LEAGUE_LOW", "0.85"))       # daily kWh < 85% of median = flag
 LAT, LON = 55.98, 22.37   # approx. Kairiškiai area; adjust if needed
 STATE_FILE = os.environ.get("STATE_FILE", "solar_state.json")
+DAILY_ELEV = float(os.environ.get("DAILY_ELEV", "-4"))      # daily table when the sun is this far below the horizon (~25-35 min after sunset)
+DAILY_DONE = os.environ.get("DAILY_DONE", "solar_daily_done.txt")
 
 S = requests.Session()
 S.headers["User-Agent"] = "Mozilla/5.0 (solar-watchdog)"
@@ -317,6 +319,14 @@ def main():
     except Exception as e:
         print("flush error", e)
     daily = "--daily" in sys.argv
+    auto_daily = False
+    if not daily and elev <= DAILY_ELEV and now.hour >= 11:      # evening, after sunset
+        try:
+            done = open(DAILY_DONE).read().strip()
+        except Exception:
+            done = ""
+        auto_daily = done != now.strftime("%Y-%m-%d")
+        daily = auto_daily
 
     try:
         p15, phour = price_now(now)
@@ -342,6 +352,8 @@ def main():
            else f"📊 Kairiškiai solar park – daily summary failed: {portal_error}")
         state["last_run"] = now.isoformat()
         json.dump(state, open(STATE_FILE, "w"), indent=1)
+        if auto_daily:
+            open(DAILY_DONE, "w").write(now.strftime("%Y-%m-%d") + "\n")
         return
 
     if invs is None:
