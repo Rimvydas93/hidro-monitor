@@ -2,10 +2,15 @@ name: Solar park watchdog
 on:
   schedule:
     - cron: "*/15 3-19 * * *"     # every 15 min, 03-19 UTC; night skipped by sun-elevation check
+    - cron: "5 18 * * *"          # evening league table, 18:05 UTC
   workflow_dispatch:
     inputs:
       test:
         description: "Send a test Telegram message"
+        type: boolean
+        default: false
+      daily:
+        description: "Send the daily league table now"
         type: boolean
         default: false
 permissions:
@@ -31,7 +36,8 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           IGNORE_INVERTERS: "111747"
           PRICE_THRESHOLD: "19"
-        run: python solar_monitor.py ${{ inputs.test && '--test' || '' }}
+          ARGS: ${{ github.event.schedule == '5 18 * * *' && '--daily' || (inputs.daily && '--daily') || (inputs.test && '--test') || '' }}
+        run: python solar_monitor.py $ARGS
       - name: Save alert state
         run: |
           git config user.name "solar-watchdog"
