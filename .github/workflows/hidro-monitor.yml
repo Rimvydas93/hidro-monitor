@@ -32,8 +32,16 @@ jobs:
           git config user.name "hidro-monitor"
           git config user.email "hidro-monitor@users.noreply.github.com"
           save() {
-            git add state.json hidro_daily_done.txt 2>/dev/null || true
+            date -u +%FT%TZ > hidro_heartbeat.txt
+            git add state.json hidro_daily_done.txt hidro_heartbeat.txt 2>/dev/null || true
             git diff --cached --quiet || (git commit -m "state" -q && git pull --rebase -q && git push -q) || true
+          }
+          watch() {
+            alive=$(gh run list --workflow=solar.yml --json status -q '[.[] | select(.status != "completed")] | length' 2>/dev/null || echo "?")
+            if [ "$alive" = "0" ]; then
+              gh workflow run solar.yml || true
+              curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" --data-urlencode "text=⚠️ Solar park watchdog had stopped - it was restarted automatically." > /dev/null || true
+            fi
           }
           if [ "$MODE" != "loop" ]; then
             python monitor.py "$MODE" || true
@@ -53,6 +61,7 @@ jobs:
             fi
             n=$((n+1))
             if [ $((n % 12)) -eq 0 ]; then save; fi
+            if [ $((n % 6)) -eq 0 ]; then watch; fi
             sleep 300
           done
           save
