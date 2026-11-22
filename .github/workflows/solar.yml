@@ -1,8 +1,7 @@
 name: Solar park watchdog
 on:
   schedule:
-    - cron: "*/15 3-19 * * *"     # every 15 min, 03-19 UTC; night skipped by sun-elevation check
-    - cron: "5 18 * * *"          # evening league table, 18:05 UTC
+    - cron: "17 * * * *"          # safety net: restarts the loop if it ever stopped
   workflow_dispatch:
     inputs:
       test:
@@ -15,20 +14,21 @@ on:
         default: false
 permissions:
   contents: write
+  actions: write
 concurrency:
-  group: solar-watchdog
+  group: solar-${{ (inputs.daily || inputs.test) && 'manual' || 'loop' }}
   cancel-in-progress: false
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: Run check
+      - name: Run
         env:
           FIMER_USER: ${{ secrets.FIMER_USER }}
           FIMER_PASSWORD: ${{ secrets.FIMER_PASSWORD }}
@@ -36,11 +36,33 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           IGNORE_INVERTERS: "111747"
           PRICE_THRESHOLD: "19"
-          ARGS: ${{ github.event.schedule == '5 18 * * *' && '--daily' || (inputs.daily && '--daily') || (inputs.test && '--test') || '' }}
-        run: python solar_monitor.py $ARGS
-      - name: Save alert state
+          ARGS: ${{ (inputs.daily && '--daily') || (inputs.test && '--test') || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "solar-watchdog"
           git config user.email "actions@github.com"
-          git add solar_state.json
-          git diff --cached --quiet || (git commit -m "state" -q && git pull --rebase -q && git push -q)
+          save() {
+            git add solar_state.json solar_daily_done.txt 2>/dev/null || true
+            git diff --cached --quiet || (git commit -m "state" -q && git pull --rebase -q && git push -q) || true
+          }
+          if [ -n "$ARGS" ]; then
+            python solar_monitor.py $ARGS || true
+            save
+            exit 0
+          fi
+          # loop mode: queue the successor now (it waits for this run to end), then check every 10 min
+          gh workflow run solar.yml || true
+          end=$(( $(date +%s) + 20400 ))
+          n=0
+          while [ "$(date +%s)" -lt "$end" ]; do
+            python solar_monitor.py || echo "check failed"
+            t=$(date -u +%-H%M); today=$(date -u +%F)
+            if [ "$t" -ge 1805 ] && [ "$t" -lt 1900 ] && [ "$(cat solar_daily_done.txt 2>/dev/null)" != "$today" ]; then
+              python solar_monitor.py --daily || echo "daily failed"
+              echo "$today" > solar_daily_done.txt
+            fi
+            n=$((n+1))
+            if [ $((n % 6)) -eq 0 ]; then save; fi
+            sleep 600
+          done
+          save
