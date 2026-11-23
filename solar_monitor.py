@@ -32,6 +32,9 @@ LOW_INV_GTI = float(os.environ.get("LOW_INV_GTI", "250"))      # W/m2 needed bef
 LOW_INV_ELEV = float(os.environ.get("LOW_INV_ELEV", "15"))     # same, if no irradiance data (sun elevation, deg)
 LOW_INV_RUNS = int(os.environ.get("LOW_INV_RUNS", "3"))        # ... must persist this many checks in a row (~30 min)
 MIN_LOSS_EUR = float(os.environ.get("MIN_LOSS_EUR", "5"))      # ... and cost at least this much per hour
+# Optional manual inverter sizes, e.g. SIZES="057617:3,301153:3". Default: all inverters equal (size 1).
+# (Auto-learning was removed 2026-11-23: it wrongly marked 057617 and 301153 as x3 after a day when the others were shut down.)
+SIZES = {k.strip(): float(v) for k, v in (p.split(":") for p in os.environ.get("SIZES", "").split(",") if ":" in p)}
 DOWN_RUNS = int(os.environ.get("DOWN_RUNS", "2"))              # a dead inverter must persist this many checks (~20 min)
 PARK_KW = float(os.environ.get("PARK_KW", "420"))              # nameplate DC power of the whole park
 PERF_RATIO = float(os.environ.get("PERF_RATIO", "0.80"))       # realistic output / ideal output
@@ -209,7 +212,7 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
     should_run = p15 is not None and min(p15, phour) >= THRESHOLD   # controller may use 15-min or hourly price
     should_stop = p15 is not None and max(p15, phour) < THRESHOLD
     price = p15 if p15 is not None else 0.0
-    sz = state.get("size", {})            # learned in the daily run: big inverters = 3, normal = 1
+    sz = SIZES                            # manual sizes only (default: all inverters equal)
 
     def size(i):
         return sz.get(i["id"], 1.0)
@@ -298,18 +301,12 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
 
 
 def daily_summary(invs, now, state):
-    """Evening league table: each inverter's energy today vs the typical one (scaled by its learned size)."""
+    """Evening league table: each inverter's energy today vs the typical one (scaled by its size, default all equal)."""
     rows = [(i["id"], kwh(i["daily"])) for i in invs if i["id"] not in IGNORE]
     rows = [(a, b) for a, b in rows if b is not None]
     if not rows:
         return "📊 <b>Kairiškiai solar park</b> – daily summary: no energy values read from the portal."
-    sz = state.setdefault("size", {})
-    base = statistics.median(b for _, b in rows)
-    if base >= 5:                         # a real production day: learn which inverters are big (once)
-        for a, b in rows:
-            if a not in sz:
-                r = b / base
-                sz[a] = float(round(r)) if r >= 1.5 else 1.0
+    sz = SIZES
     norm = {a: b / sz.get(a, 1.0) for a, b in rows}
     nmed = statistics.median(norm.values())
     total = sum(b for _, b in rows)
