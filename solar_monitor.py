@@ -27,7 +27,12 @@ THRESHOLD = float(os.environ.get("PRICE_THRESHOLD", "19"))
 IGNORE = {x.strip() for x in os.environ.get("IGNORE_INVERTERS", "111747").split(",") if x.strip()}
 MIN_SUN_ELEV = float(os.environ.get("MIN_SUN_ELEV", "6"))      # degrees; below this, low output is normal
 REMIND_MIN = int(os.environ.get("REMIND_MIN", "60"))
-LOW_RATIO = float(os.environ.get("LOW_RATIO", "0.4"))          # inverter < 40% of park median = underperforming
+LOW_RATIO = float(os.environ.get("LOW_RATIO", "0.25"))         # inverter < 25% of its class median = underperforming
+LOW_INV_GTI = float(os.environ.get("LOW_INV_GTI", "250"))      # W/m2 needed before comparing inverters with each other
+LOW_INV_ELEV = float(os.environ.get("LOW_INV_ELEV", "15"))     # same, if no irradiance data (sun elevation, deg)
+LOW_INV_RUNS = int(os.environ.get("LOW_INV_RUNS", "3"))        # ... must persist this many checks in a row (~30 min)
+MIN_LOSS_EUR = float(os.environ.get("MIN_LOSS_EUR", "5"))      # ... and cost at least this much per hour
+DOWN_RUNS = int(os.environ.get("DOWN_RUNS", "2"))              # a dead inverter must persist this many checks (~20 min)
 PARK_KW = float(os.environ.get("PARK_KW", "420"))              # nameplate DC power of the whole park
 PERF_RATIO = float(os.environ.get("PERF_RATIO", "0.80"))       # realistic output / ideal output
 MIN_GTI = float(os.environ.get("MIN_GTI", "150"))              # W/m2 on panels needed before judging the park
@@ -251,22 +256,36 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
 
     # --- price good + sun up: every inverter should run -----------------------------------------------
     if should_run and day:
-        down = [i for i in active if i not in running]
+        down_now = [i for i in active if i not in running]
+        dseen = state.get("down_seen", {})
+        dnew = {i["id"]: dseen.get(i["id"], 0) + 1 for i in down_now}
+        state["down_seen"] = dnew
+        down = [i for i in down_now if dnew[i["id"]] >= DOWN_RUNS]
         if down:
             lost_eur = sum(size(i) for i in down) * med_w / 1000 * price / 1000
             problems.append(("down:" + ",".join(sorted(i["id"] for i in down)),
                              f"{len(down)}/{len(active)} inverters NOT producing: "
                              + ", ".join(f"{i['id']} ({i['global'] or i['status']}; {i['alarm']})" for i in down)
                              + (f". Lost ≈ {lost_eur:.1f} €/h" if med_w > 500 else "")))
-        if len(running) >= 4 and med_w > 500:
-            low = [i for i in running if i["power"] / size(i) < LOW_RATIO * med_w]
-            if low:
-                lost_eur = sum(med_w * size(i) - i["power"] for i in low) / 1000 * price / 1000
+        bright = (gti >= LOW_INV_GTI) if gti is not None else (elev >= LOW_INV_ELEV)
+        low_now = []
+        if bright and len(running) >= 4 and med_w > 500:
+            low_now = [i for i in running if i["power"] / size(i) < LOW_RATIO * med_w]
+        lseen = state.get("low_seen", {})
+        lnew = {i["id"]: lseen.get(i["id"], 0) + 1 for i in low_now}
+        state["low_seen"] = lnew
+        low = [i for i in low_now if lnew[i["id"]] >= LOW_INV_RUNS]
+        if low:
+            lost_eur = sum(med_w * size(i) - i["power"] for i in low) / 1000 * price / 1000
+            if lost_eur >= MIN_LOSS_EUR:
                 problems.append(("low:" + ",".join(sorted(i["id"] for i in low)),
                                  "Underperforming: " + ", ".join(
                                      f"{i['id']} {i['power']/1000:.1f} kW vs expected {med_w*size(i)/1000:.1f}"
                                      for i in low)
                                  + f". Lost ≈ {lost_eur:.1f} €/h"))
+    else:
+        state["down_seen"] = {}
+        state["low_seen"] = {}
     if should_stop and total > 1000 and day:
         problems.append(("not_stopped",
                          f"Price below {THRESHOLD:g} €/MWh but park still producing {total/1000:.1f} kW (shutdown failed?)"))
