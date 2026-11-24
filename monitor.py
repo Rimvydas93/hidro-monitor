@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Rakiskes HE (hidro.biip.lt, plant 69) publication monitor.
+"""Rakiskes HE (life.meteo.lt / meteo.lt official hydro data, station 88) publication monitor.
+(Until 2026-11-24 this read hidro.biip.lt plant 69, which stopped publishing on 2026-11-16.)
 
 check   : red Telegram alert if the latest hourly reading is >= 1 quarter late
           (one alert, repeated every 3 h while late) + a green message when data returns.
@@ -12,9 +13,9 @@ from zoneinfo import ZoneInfo
 
 import quiet
 
-PLANT = "69"
-API = "https://hidro.biip.lt/api/events/all"
-PUBLISH_DELAY = timedelta(minutes=25)   # reading for hour H appears at H+25 min
+PLANT = "88"
+API = "https://life.meteo.lt/hidro/api/heStation/map"
+PUBLISH_DELAY = timedelta(minutes=40)   # reading for hour H normally appears within ~40 min (most stations by H+60 min)
 QUARTER = timedelta(minutes=15)
 REPEAT = timedelta(hours=3)
 STATE = "state.json"
@@ -26,14 +27,24 @@ def parse(ts):
 
 
 def fetch(now):
+    """Readings of station PLANT from the official meteo.lt API, normalised to the old event shape."""
     fmt = "%Y-%m-%dT%H:%M:%SZ"
-    q = {"hydroPowerPlant": PLANT,
-         "time": {"$gte": (now - timedelta(hours=72)).strftime(fmt),
-                  "$lt": (now + timedelta(hours=1)).strftime(fmt)}}
-    url = API + "?sort[]=time&query=" + urllib.parse.quote(json.dumps(q, separators=(",", ":")))
-    req = urllib.request.Request(url, headers={"User-Agent": "dasma-hidro-monitor"})
+    q = ("pageSize=500&page=1"
+         "&query[obstime][$gte]=" + (now - timedelta(hours=72)).strftime(fmt) +
+         "&query[obstime][$lt]=" + (now + timedelta(hours=1)).strftime(fmt))
+    req = urllib.request.Request(API + "?" + q, headers={"User-Agent": "dasma-hidro-monitor"})
     with urllib.request.urlopen(req, timeout=30) as r:
-        return json.load(r)
+        stations = json.load(r)
+    out = []
+    for st in stations:
+        if str(st.get("id")) == PLANT:
+            for e in st.get("events", []):
+                try:
+                    out.append({"time": e["obstime"], "upperBasin": float(e["highLevel"]),
+                                "lowerBasin": float(e["lowLevel"]), "createdAt": None})
+                except (KeyError, TypeError, ValueError):
+                    continue
+    return out
 
 
 def lt(dt):
@@ -140,6 +151,8 @@ def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "check"
     now = datetime.now(timezone.utc)
     events = fetch(now)
+    st0 = status(events, now)
+    print("latest:", st0 and (lt(st0["time"]), level_text(st0["last"]), "late quarters:", st0["quarters_late"]) or "no readings")
     quiet.flush(_raw_send, HELD_FILE)
     if mode == "summary":
         send(summary(events, now))
