@@ -22,6 +22,11 @@ LATE_AFTER = timedelta(hours=float(os.environ.get("LATE_AFTER_H", "4")))   # lat
 SUMMARY_GRACE = timedelta(hours=3)      # the daily summary ignores the newest 3 h (normal publishing delay)
 KEEP_SEEN = 96                          # remembered first-seen times (readings)
 REPEAT = timedelta(hours=3)
+# Permitted water levels for Rakiskes HE (official limits from the meteo.lt station record, station 88)
+UP_MAX = float(os.environ.get("UPPER_MAX", "80.60"))    # upper basin (virsutinis bjefas) must stay <= this
+UP_MIN = float(os.environ.get("UPPER_MIN", "79.70"))    #  ... and >= this
+LOW_MIN = float(os.environ.get("LOWER_MIN", "75.90"))   # lower basin (apatinis bjefas) must stay >= this
+LEVEL_MAX_AGE = timedelta(hours=12)                     # ignore readings older than this for level alerts
 STATE = "state.json"
 VILNIUS = ZoneInfo("Europe/Vilnius")
 
@@ -132,6 +137,41 @@ def check(events, now, state):
     return state
 
 
+def level_issues(last):
+    """Which permitted limits the reading breaks (empty list = all fine)."""
+    out = []
+    if last["upperBasin"] > UP_MAX:
+        out.append(("up_hi", f"viršutinis bjefas {m(last['upperBasin'])} viršija leistiną {m(UP_MAX)}"))
+    elif last["upperBasin"] < UP_MIN:
+        out.append(("up_lo", f"viršutinis bjefas {m(last['upperBasin'])} žemiau leistino {m(UP_MIN)}"))
+    if last["lowerBasin"] < LOW_MIN:
+        out.append(("low_lo", f"apatinis bjefas {m(last['lowerBasin'])} žemiau leistino {m(LOW_MIN)}"))
+    return out
+
+
+def level_check(events, now, lvl):
+    """Alert when the newest published reading is outside the permitted water levels.
+    One alert per kind of breach, repeated every 3 h while it lasts, green message when back in range."""
+    st = status(events, now)
+    if st is None or now - st["time"] > LEVEL_MAX_AGE:
+        return lvl
+    issues = level_issues(st["last"])
+    kinds = sorted(k for k, _ in issues)
+    prev = lvl.get("kinds", [])
+    last_at = parse(lvl["at"]) if lvl.get("at") else None
+    if issues:
+        if kinds != prev or (last_at and now - last_at >= REPEAT):
+            send("🟠 Rakiškės HE: vandens lygis už leistinų ribų.\n"
+                 f"Rodmuo: {lt(st['time'])} (Vilnius): " + "; ".join(t for _, t in issues) + ".\n"
+                 f"Leistina: viršutinis {m(UP_MIN)} – {m(UP_MAX)}, apatinis ne mažiau {m(LOW_MIN)}.\n"
+                 f"Dabar: {level_text(st['last'])}.")
+            return {"kinds": kinds, "at": now.isoformat()}
+        return lvl
+    if prev:
+        send(f"🟢 Rakiškės HE: vandens lygis vėl leistinose ribose.\nRodmuo: {lt(st['time'])} (Vilnius), {level_text(st['last'])}.")
+    return {}
+
+
 def track_seen(events, now, seen):
     """Remember when each reading first appeared, to learn the real publishing delay.
     First ever run only records a baseline (None) so old readings do not count."""
@@ -195,8 +235,10 @@ def main():
         state["seen"] = seen
         save_state(state)
     else:
+        lvl = state.pop("lvl", {})
         state = check(events, now, state)
         state["seen"] = seen
+        state["lvl"] = level_check(events, now, lvl)
         save_state(state)
 
 
