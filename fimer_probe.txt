@@ -1,0 +1,232 @@
+probe 2026-11-25T12:06:28.772654+00:00 inverters=16 first=057617
+
+=== inv.php (133824 bytes) title=FIMER Web Portal - Inverter 057617
+-- label/value pairs (71):
+RIMVYDAS = 
+Last Update = 25/11/2026 12:57:17 (Europe/Rome)
+Data time = 25/11/2026 13:52:23 (Europe/Vilnius)
+Global Status = [6] Run
+DC DC 1 Status = [2] MPPT
+DC DC 2 Status = [2] MPPT
+Inverter Status = [2] Run
+Alarm Status = [0] No Alarm
+Daily Energy = 25.62 k Wh
+Weekly Energy = 57.30 k Wh
+Monthly Energy = 837.10 k Wh
+Yearly Energy = 4.29 G Wh
+Total Energy = 420.65 M Wh
+Output Voltage = 232.3 V
+Output Current = 3.4 A
+Output Power = 2.49 k W
+Frequency = 49.9 Hz
+Input 1 Voltage = 608.1 V
+Input 1 Current = 2.1 A
+Input 1 Power = 1.29 k W
+Input 2 Voltage = 607 V
+Input 2 Current = 2.1 A
+Input 2 Power = 1.27 k W
+Internal Temperature = 10.2 °C
+Booster Temperature = 7.6 °C
+Current Leak = 0 µA
+Isolation Resistance = 6.8 MΩ
+Add Inverter Name [Serial Number] Name = 057617
+Add/Update Inverter description (No special characters ) Description = ...
+S/N = 057617-3M22-0513
+Model = TRIO-27.6-TL-DE
+RS485 Address = 6 (Bus #2)
+Reference Standard = Germany - VDE0126
+Input Mode = Independent Channels
+Micro FW Version = C055
+DSP Inverter FW Version = B040
+DSP DC/DC FW Version = A030
+057612 (Removed) = 
+057614 (Removed) = 
+057615 (Removed) = 
+057615 (Removed) = 
+057616 (Bed) = 
+057617 = 
+057618 (Bes) = 
+057621 (Removed) = 
+057622 (Bed) = 
+057623 (not usable) = 
+057625 (Removed) = 
+111747 = 
+118795 = 
+122809 = 
+127649 = 
+129145 = 
+129146 = 
+135534 = 
+144212 = 
+197078 (Removed) = 
+300338 = 
+300610 = 
+300878 = 
+301153 = 
+301951 = 
+301951 (Bed) = 
+302595 = 
+302650 (N) = 
+302650 = 
+725092 (unusable) = 
+S/N: = 040726V0E0300513
+RS485 Address: = (Bus #1)
+Version = D20B
+Sub-version = D20B
+-- table rows (71):
+Values | Information | Analysis | Display
+Plants ⇱ ⇲ SOLAR PARK KAIRISKIAI 420KW 420 KW [009838] 057617 217765 217765 111747 118795 050159 050159 122809 050161 050161 127649 352128 352128 129145 112304 112304 129146 050150 050150 135534 06208
+420 KW [009838] 057617 217765 217765 111747 118795 050159 050159 122809 050161 050161 127649 352128 352128 129145 112304 112304 129146 050150 050150 135534 062082 062082 144212 062084 062084 300338 06
+057617 217765 217765 111747 118795 050159 050159 122809 050161 050161 127649 352128 352128 129145 112304 112304 129146 050150 050150 135534 062082 062082 144212 062084 062084 300338 062080 062080 3006
+217765 217765 | 217765 | 217765
+050159 050159 | 050159 | 050159
+050161 050161 | 050161 | 050161
+352128 352128 | 352128 | 352128
+112304 112304 | 112304 | 112304
+050150 050150 | 050150 | 050150
+062082 062082 | 062082 | 062082
+062084 062084 | 062084 | 062084
+062080 062080 | 062080 | 062080
+112301 112301 | 112301 | 112301
+050151 050151 | 050151 | 050151
+856194 | 856194
+050164 050164 | 050164 | 050164
+062074 062074 | 062074 | 062074
+062076 062076 | 062076 | 062076
+Last Update 25/11/2026 12:57:17 (Europe/Rome) Data time 25/11/2026 13:52:23 (Europe/Vilnius) Global Status [6] Run DC DC 1 Status [2] MPPT DC DC 2 Status [2] MPPT Inverter Status [2] Run Alarm Status 
+Last Update | 25/11/2026 12:57:17 (Europe/Rome) | 25/11/2026 12:57:17 (Europe/Rome)
+Data time | 25/11/2026 13:52:23 (Europe/Vilnius)
+Global Status | [6] Run
+DC DC 1 Status | [2] MPPT
+DC DC 2 Status | [2] MPPT
+Inverter Status | [2] Run
+Alarm Status | [0] No Alarm | [0] No Alarm
+Daily Energy | 25.62 k Wh
+Weekly Energy | 57.30 k Wh
+Monthly Energy | 837.10 k Wh
+Yearly Energy | 4.29 G Wh
+Total Energy | 420.65 M Wh
+Output Voltage | 232.3 V
+Output Current | 3.4 A
+Output Power | 2.49 k W
+Frequency | 49.9 Hz
+Input 1 Voltage | 608.1 V
+Input 1 Current | 2.1 A
+Input 1 Power | 1.29 k W
+Input 2 Voltage | 607 V
+Input 2 Current | 2.1 A
+Input 2 Power | 1.27 k W
+Internal Temperature | 10.2 °C
+Booster Temperature | 7.6 °C
+Current Leak | 0 µA
+Isolation Resistance | 6.8 MΩ
+Information Add Inverter Name [Serial Number] Name 057617 Add/Update Inverter description (No special characters ) Description ... S/N 057617-3M22-0513 Model TRIO-27.6-TL-DE RS485 Address 6 (Bus #2) R
+Add Inverter Name [Serial Number] Name | 057617 | 057617
+Add/Update Inverter description (No special characters ) Description | ... | ...
+S/N | 057617-3M22-0513
+Model | TRIO-27.6-TL-DE
+RS485 Address | 6 (Bus #2)
+Reference Standard | Germany - VDE0126
+Input Mode | Independent Channels
+Micro FW Version | C055
+DSP Inverter FW Version | B040
+DSP DC/DC FW Version | A030
+Measurements Input 1 Voltage (V) Input 1 Current (A) Input 1 Power (W) Input 2 Voltage (V) Input 2 Current (A) Input 2 Power (W) Output Voltage (V) Output Current (A) Output Power (W) Internal Tempera
+Input 1 Voltage (V) Input 1 Current (A) Input 1 Power (W) Input 2 Voltage (V) Input 2 Current (A) Input 2 Power (W) Output Voltage (V) Output Current (A) Output Power (W) Internal Temperature (°C) Boo
+057612 (Removed) 057614 (Removed) 057615 (Removed) 057615 (Removed) 057616 (Bed) 057617 057618 (Bes) 057621 (Removed) 057622 (Bed) 057623 (not usable) 057625 (Removed) 111747 118795 122809 127649 1291
+Chart Type: Line Column Chart Mode: Complete Day Monthly Period: Today Current Week Last 7 Days Current Month Last 30 Days Select Day Custom Start From: change End To: change | Chart Type: | Line Colu
+Chart Type: | Line Column
+Chart Mode: | Complete Day Monthly
+Period: | Today Current Week Last 7 Days Current Month Last 30 Days Select Day Custom
+Start From: | change
+End To: | change
+Display S/N: 040726V0E0300513 RS485 Address: (Bus #1) Version D20B Sub-version D20B | S/N: | 040726V0E0300513 | RS485 Address: | (Bus #1) | Version | D20B | Sub-version | D20B
+S/N: | 040726V0E0300513
+RS485 Address: | (Bus #1)
+Version | D20B
+Sub-version | D20B
+-- links/endpoints (12):
+a[href]=admin.php
+a[href]=logout.php
+a[href]=park.php
+a[href]=user_profile.php
+script:check_session.php
+script:inv_chart_interpolate.php
+script:inv_chart_interpolate.php?InvID0=057617-3M22-0513
+script:inv_chart_interpolate.php?action=export
+script:inv_chart_interpolatei2.php?InvID0=057617-3M22-0513
+script:inv_chart_interpolatei3.php?InvID0=057617-3M22-0513
+script[src]=https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js
+script[src]=https://cdnjs.cloudflare.com/ajax/libs/prototype/1.7.3/prototype.min.js
+-- tab/menu texts: change
+
+=== POST admin.php (5820 bytes) title=FIMER Web Portal - Administration
+-- label/value pairs (1):
+RIMVYDAS = 
+-- table rows (1):
+Administration Users Management New User Users Management Debug / Diagnose Test E-Mail | Administration | Users Management New User Users Management | Debug / Diagnose Test E-Mail
+-- links/endpoints (9):
+a[href]=/fimer/admin.php?testmail=1
+a[href]=admin.php
+a[href]=logout.php
+a[href]=park.php
+a[href]=user_new.php
+a[href]=user_profile.php
+a[href]=users.php
+script:check_session.php
+script[src]=https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js
+-- tab/menu texts: 
+
+=== POST user_profile.php (13370 bytes) title=FIMER Web Portal - My Profile
+-- label/value pairs (1):
+RIMVYDAS = 
+-- table rows (2):
+My Profile | Password
+Language | English Italiano Français Español Deutsch Dutch ελληνικά Čeština
+-- links/endpoints (7):
+a[href]=admin.php
+a[href]=logout.php
+a[href]=park.php
+a[href]=user_change_password.php
+a[href]=user_profile.php
+script:check_session.php
+script[src]=https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js
+-- tab/menu texts: 
+
+=== POST check_session.php (0 bytes) title=
+-- label/value pairs (0):
+-- table rows (0):
+-- links/endpoints (0):
+-- tab/menu texts: 
+
+=== POST inv_chart_interpolate.php (3655 bytes) title=
+-- label/value pairs (1):
+No Data for this Period = 
+-- table rows (0):
+-- links/endpoints (0):
+-- tab/menu texts: 
+
+=== POST inv_chart_interpolate.php?InvID0=057617-3M22-0513 (17443 bytes) title=
+-- label/value pairs (1):
+No Data for this Period = 
+-- table rows (0):
+-- links/endpoints (0):
+-- tab/menu texts: 
+
+=== POST inv_chart_interpolate.php?action=export (2 bytes) title=
+-- label/value pairs (0):
+-- table rows (0):
+-- links/endpoints (0):
+-- tab/menu texts: 
+
+=== POST inv_chart_interpolatei2.php?InvID0=057617-3M22-0513 (231 bytes) title=404 Not Found
+-- label/value pairs (0):
+-- table rows (0):
+-- links/endpoints (0):
+-- tab/menu texts: 
+
+=== POST inv_chart_interpolatei3.php?InvID0=057617-3M22-0513 (231 bytes) title=404 Not Found
+-- label/value pairs (0):
+-- table rows (0):
+-- links/endpoints (0):
+-- tab/menu texts: 
