@@ -39,6 +39,7 @@ DOWN_RUNS = int(os.environ.get("DOWN_RUNS", "2"))              # a dead inverter
 PARK_KW = float(os.environ.get("PARK_KW", "420"))              # nameplate DC power of the whole park
 PERF_RATIO = float(os.environ.get("PERF_RATIO", "0.80"))       # realistic output / ideal output
 MIN_GTI = float(os.environ.get("MIN_GTI", "150"))              # W/m2 on panels needed before judging the park
+LOW_PARK_ELEV = float(os.environ.get("LOW_PARK_ELEV", "15"))   # sun must be this high (deg) before judging the park: low sun = row shading, model unreliable
 LOW_PARK = float(os.environ.get("LOW_PARK", "0.4"))            # park < 40% of expected = problem
 LOW_PARK_RUNS = int(os.environ.get("LOW_PARK_RUNS", "2"))      # ... on this many runs in a row
 TILT = os.environ.get("PANEL_TILT", "35")
@@ -245,7 +246,7 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
         expected_w = PARK_KW * 1000 * share * gti / 1000 * PERF_RATIO
         if expected_w > 0:
             ratio = total / expected_w
-        if should_run and day and gti >= MIN_GTI and ratio is not None and ratio < LOW_PARK:
+        if should_run and day and gti >= MIN_GTI and elev >= LOW_PARK_ELEV and ratio is not None and ratio < LOW_PARK:
             state["low_count"] = state.get("low_count", 0) + 1
         else:
             state["low_count"] = 0
