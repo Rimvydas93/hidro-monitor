@@ -44,6 +44,15 @@ PEER_MIN_W = float(os.environ.get("PEER_MIN_W", "1000"))       # median inverter
 REL_MIN_SAMPLES = int(os.environ.get("REL_MIN_SAMPLES", "30"))  # samples needed before an inverter's own normal is trusted
 REL_KEEP = int(os.environ.get("REL_KEEP", "200"))              # remembered samples per inverter
 REL_DROP = float(os.environ.get("REL_DROP", "0.6"))            # alert when < 60% of the inverter's OWN normal share
+CH_MIN_W = float(os.environ.get("CH_MIN_W", "800"))            # inverter DC input power (W) needed before comparing its two inputs
+CH_SHIFT = float(os.environ.get("CH_SHIFT", "0.25"))           # input-1 share of DC power moved this far from its own normal = fault
+CH_RUNS = int(os.environ.get("CH_RUNS", "3"))                  # ... on this many checks in a row
+ISO_MIN_OHM = float(os.environ.get("ISO_MIN_OHM", "1000000"))  # isolation resistance below this = insulation/earth-fault risk
+LEAK_MAX_UA = float(os.environ.get("LEAK_MAX_UA", "30000"))    # leakage current above this (microamps)
+TEMP_MAX_C = float(os.environ.get("TEMP_MAX_C", "75"))         # internal / booster temperature above this
+V_MIN, V_MAX = float(os.environ.get("V_MIN", "207")), float(os.environ.get("V_MAX", "253"))   # grid voltage band (230 V -10/+10 %)
+F_MIN, F_MAX = float(os.environ.get("F_MIN", "49.5")), float(os.environ.get("F_MAX", "50.5"))  # grid frequency band
+HEALTH_RUNS = int(os.environ.get("HEALTH_RUNS", "3"))          # temperature / isolation / leakage / grid must persist this many checks
 LOW_PARK_ELEV = float(os.environ.get("LOW_PARK_ELEV", "15"))   # sun must be this high (deg) before judging the park: low sun = row shading, model unreliable
 LOW_PARK = float(os.environ.get("LOW_PARK", "0.4"))            # park < 40% of expected = problem
 LOW_PARK_RUNS = int(os.environ.get("LOW_PARK_RUNS", "2"))      # ... on this many runs in a row
@@ -139,6 +148,24 @@ def num(txt):
     return v
 
 
+def numo(txt):
+    """Number in text or None (num() returns 0.0 for no number)."""
+    return num(txt) if re.search(r"\d", txt or "") else None
+
+
+def ohm(txt):
+    """'6.8 MΩ' -> 6800000.0; None if no number."""
+    v = numo(txt)
+    if v is None:
+        return None
+    t = (txt or "").replace(" ", "")
+    if "MΩ" in t:
+        return v * 1e6
+    if "kΩ" in t or "KΩ" in t:
+        return v * 1e3
+    return v
+
+
 def kwh(txt):
     """Energy text -> kWh (None if no number)."""
     m = re.search(r"-?\d+(?:[.,]\d+)?", txt or "")
@@ -193,6 +220,12 @@ def read_inverters(ids):
             "alarm": field(s, "Alarm Status"),
             "power": num(field(s, "Output Power")),
             "daily": field(s, "Daily Energy"),
+            "in1p": numo(field(s, "Input 1 Power")), "in2p": numo(field(s, "Input 2 Power")),
+            "in1v": numo(field(s, "Input 1 Voltage")), "in2v": numo(field(s, "Input 2 Voltage")),
+            "in1i": numo(field(s, "Input 1 Current")), "in2i": numo(field(s, "Input 2 Current")),
+            "outv": numo(field(s, "Output Voltage")), "freq": numo(field(s, "Frequency")),
+            "tint": numo(field(s, "Internal Temperature")), "tboost": numo(field(s, "Booster Temperature")),
+            "leak": numo(field(s, "Current Leak")), "iso": ohm(field(s, "Isolation Resistance")),
         })
     return out
 
@@ -332,6 +365,60 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
         pw = {i["id"]: i["power"] for i in active}
         problems.append(("alarm:" + ",".join(alarmed),
                          "Inverter alarm: " + "; ".join(f"{k} {anow[k]} (now {pw[k]/1000:.1f} kW)" for k in alarmed)))
+
+    # --- inverter health from its own measurements (no weather, no price) ----------------------------
+    def health_issues(i):
+        """Problems visible in one inverter's own readings (only while it is running in daylight)."""
+        out = []
+        g = lambda k: i.get(k)
+        for k, name in (("tint", "internal"), ("tboost", "booster")):
+            if g(k) is not None and g(k) > TEMP_MAX_C:
+                out.append(f"{name} temperature {g(k):.0f} °C")
+        if g("iso") is not None and 0 < g("iso") < ISO_MIN_OHM:
+            out.append(f"isolation resistance {g('iso')/1e6:.2f} MΩ")
+        if g("leak") is not None and g("leak") > LEAK_MAX_UA:
+            out.append(f"leakage current {g('leak')/1000:.1f} mA")
+        if g("outv") is not None and g("outv") > 50 and not (V_MIN <= g("outv") <= V_MAX):
+            out.append(f"grid voltage {g('outv'):.0f} V")
+        if g("freq") is not None and g("freq") > 40 and not (F_MIN <= g("freq") <= F_MAX):
+            out.append(f"grid frequency {g('freq'):.2f} Hz")
+        return out
+
+    hseen = state.get("health_seen", {})
+    hnow = {i["id"]: health_issues(i) for i in running if day}
+    hnow = {k: v for k, v in hnow.items() if v}
+    hnew = {k: hseen.get(k, 0) + 1 for k in hnow}
+    state["health_seen"] = hnew
+    sick = sorted(k for k in hnow if hnew[k] >= HEALTH_RUNS)
+    if sick:
+        problems.append(("health:" + ",".join(sick),
+                         "Inverter health: " + "; ".join(f"{k}: " + ", ".join(hnow[k]) for k in sick)))
+
+    # --- the two DC inputs (MPPT) of one inverter vs ITS OWN normal split ----------------------------
+    chs = state.setdefault("chs", {})
+    ch_now = {}
+    for i in running:
+        a, b = i.get("in1p"), i.get("in2p")
+        if not day or a is None or b is None or a + b < CH_MIN_W:
+            continue
+        share = a / (a + b)
+        v = chs.get(i["id"], [])
+        base = statistics.median(v) if len(v) >= REL_MIN_SAMPLES else None
+        if base is not None and abs(share - base) >= CH_SHIFT:
+            ch_now[i["id"]] = (a, b, base)
+        else:
+            v.append(round(share, 3))
+            del v[:-REL_KEEP]
+            chs[i["id"]] = v
+    cseen = state.get("ch_seen", {})
+    cnew = {k: cseen.get(k, 0) + 1 for k in ch_now}
+    state["ch_seen"] = cnew
+    ch_bad = sorted(k for k in ch_now if cnew[k] >= CH_RUNS)
+    if ch_bad:
+        problems.append(("channel:" + ",".join(ch_bad),
+                         "DC input imbalance (one string group failing / shaded / disconnected?): " + "; ".join(
+                             f"{k} input1 {ch_now[k][0]/1000:.2f} kW, input2 {ch_now[k][1]/1000:.2f} kW "
+                             f"(normally {ch_now[k][2]*100:.0f}%/{(1-ch_now[k][2])*100:.0f}%)" for k in ch_bad)))
 
     # --- park vs what the sun should give --------------------------------------------------------------
     ratio = None
