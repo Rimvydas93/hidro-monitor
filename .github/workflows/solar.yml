@@ -12,11 +12,15 @@ on:
         description: "Send the daily league table now"
         type: boolean
         default: false
+      probe:
+        description: "Dump FIMER inverter page fields to fimer_probe.txt (no Telegram)"
+        type: boolean
+        default: false
 permissions:
   contents: write
   actions: write
 concurrency:
-  group: solar-${{ (inputs.daily || inputs.test) && 'manual' || 'loop' }}
+  group: solar-${{ (inputs.daily || inputs.test || inputs.probe) && 'manual' || 'loop' }}
   cancel-in-progress: false
 jobs:
   check:
@@ -36,13 +40,13 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           IGNORE_INVERTERS: "111747"
           PRICE_THRESHOLD: "19"
-          ARGS: ${{ (inputs.daily && '--daily') || (inputs.test && '--test') || '' }}
+          ARGS: ${{ (inputs.daily && '--daily') || (inputs.test && '--test') || (inputs.probe && '--probe') || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "solar-watchdog"
           git config user.email "actions@github.com"
           save() {
-            for f in solar_state.json solar_daily_done.txt held_solar.json; do
+            for f in solar_state.json solar_daily_done.txt held_solar.json fimer_probe.txt; do
               if [ -e "$f" ] || git ls-files --error-unmatch "$f" >/dev/null 2>&1; then git add -A -- "$f"; fi
             done
             git diff --cached --quiet || (git commit -m "state" -q && git pull --rebase -q && git push -q) || true
