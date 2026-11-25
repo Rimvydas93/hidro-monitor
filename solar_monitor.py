@@ -31,14 +31,19 @@ LOW_RATIO = float(os.environ.get("LOW_RATIO", "0.25"))         # inverter < 25% 
 LOW_INV_GTI = float(os.environ.get("LOW_INV_GTI", "250"))      # W/m2 needed before comparing inverters with each other
 LOW_INV_ELEV = float(os.environ.get("LOW_INV_ELEV", "15"))     # same, if no irradiance data (sun elevation, deg)
 LOW_INV_RUNS = int(os.environ.get("LOW_INV_RUNS", "3"))        # ... must persist this many checks in a row (~30 min)
-MIN_LOSS_EUR = float(os.environ.get("MIN_LOSS_EUR", "5"))      # ... and cost at least this much per hour
+MIN_LOSS_EUR = float(os.environ.get("MIN_LOSS_EUR", "0.2"))      # ... and cost at least this much per hour
 # Optional manual inverter sizes, e.g. SIZES="057617:3,301153:3". Default: all inverters equal (size 1).
 # (Auto-learning was removed 2026-11-23: it wrongly marked 057617 and 301153 as x3 after a day when the others were shut down.)
 SIZES = {k.strip(): float(v) for k, v in (p.split(":") for p in os.environ.get("SIZES", "").split(",") if ":" in p)}
 DOWN_RUNS = int(os.environ.get("DOWN_RUNS", "2"))              # a dead inverter must persist this many checks (~20 min)
 PARK_KW = float(os.environ.get("PARK_KW", "420"))              # nameplate DC power of the whole park
 PERF_RATIO = float(os.environ.get("PERF_RATIO", "0.80"))       # realistic output / ideal output
-MIN_GTI = float(os.environ.get("MIN_GTI", "150"))              # W/m2 on panels needed before judging the park
+MIN_GTI = float(os.environ.get("MIN_GTI", "300"))              # W/m2 on panels needed before judging the park
+ALARM_RUNS = int(os.environ.get("ALARM_RUNS", "2"))            # inverter alarm code must persist this many checks
+PEER_MIN_W = float(os.environ.get("PEER_MIN_W", "1000"))       # median inverter output (W) needed before comparing inverters
+REL_MIN_SAMPLES = int(os.environ.get("REL_MIN_SAMPLES", "30"))  # samples needed before an inverter's own normal is trusted
+REL_KEEP = int(os.environ.get("REL_KEEP", "200"))              # remembered samples per inverter
+REL_DROP = float(os.environ.get("REL_DROP", "0.6"))            # alert when < 60% of the inverter's OWN normal share
 LOW_PARK_ELEV = float(os.environ.get("LOW_PARK_ELEV", "15"))   # sun must be this high (deg) before judging the park: low sun = row shading, model unreliable
 LOW_PARK = float(os.environ.get("LOW_PARK", "0.4"))            # park < 40% of expected = problem
 LOW_PARK_RUNS = int(os.environ.get("LOW_PARK_RUNS", "2"))      # ... on this many runs in a row
@@ -239,6 +244,26 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
         problems.append(("gone:" + ",".join(gone), "Inverter missing from portal: " + ", ".join(gone)))
     state["known"] = sorted(set(state.get("known", [])) | cur_ids)
 
+    # --- inverter's own alarm / fault status (no weather, no price needed) ----------------------------
+    def alarm_text(i):
+        a = (i.get("alarm") or "").strip()
+        if a and not re.search(r"\[\s*0\s*\]|no alarm", a, re.I):
+            return a
+        for t in (i.get("global") or "", i.get("status") or ""):
+            if re.search(r"fault|error|fail", t, re.I):
+                return t.strip()
+        return ""
+
+    aseen = state.get("alarm_seen", {})
+    anow = {i["id"]: alarm_text(i) for i in active if day and alarm_text(i)}
+    anew = {k: aseen.get(k, 0) + 1 for k in anow}
+    state["alarm_seen"] = anew
+    alarmed = sorted(k for k in anow if anew[k] >= ALARM_RUNS)
+    if alarmed:
+        pw = {i["id"]: i["power"] for i in active}
+        problems.append(("alarm:" + ",".join(alarmed),
+                         "Inverter alarm: " + "; ".join(f"{k} {anow[k]} (now {pw[k]/1000:.1f} kW)" for k in alarmed)))
+
     # --- park vs what the sun should give --------------------------------------------------------------
     ratio = None
     if gti is not None and active:
@@ -253,8 +278,8 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
         if state["low_count"] >= LOW_PARK_RUNS:
             lost = (expected_w - total) / 1000
             problems.append(("park_low",
-                             f"Park gives {total/1000:.1f} kW, only {ratio*100:.0f}% of the {expected_w/1000:.0f} kW "
-                             f"the sun should give ({gti:.0f} W/m²). Lost ≈ {lost*price/1000:.1f} €/h"))
+                             f"Weather check (secondary): park gives {total/1000:.1f} kW, only {ratio*100:.0f}% of the "
+                             f"{expected_w/1000:.0f} kW the sun model suggests ({gti:.0f} W/m²). Lost ≈ {lost*price/1000:.1f} €/h"))
     else:
         state["low_count"] = 0
 
@@ -271,21 +296,37 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
                              f"{len(down)}/{len(active)} inverters NOT producing: "
                              + ", ".join(f"{i['id']} ({i['global'] or i['status']}; {i['alarm']})" for i in down)
                              + (f". Lost ≈ {lost_eur:.1f} €/h" if med_w > 500 else "")))
-        bright = (gti >= LOW_INV_GTI) if gti is not None else (elev >= LOW_INV_ELEV)
-        low_now = []
-        if bright and len(running) >= 4 and med_w > 500:
-            low_now = [i for i in running if i["power"] / size(i) < LOW_RATIO * med_w]
+        # peer comparison, inverter data only: each inverter against ITS OWN normal share of the park median
+        rel = state.setdefault("rel", {})
+
+        def base_of(i):
+            v = rel.get(i["id"], [])
+            return statistics.median(v) if len(v) >= REL_MIN_SAMPLES else None
+
+        low_now = {}
+        if len(running) >= 4 and med_w >= PEER_MIN_W:
+            for i in running:
+                r = i["power"] / size(i) / med_w
+                base = base_of(i)
+                if r < (REL_DROP * base if base else LOW_RATIO):
+                    low_now[i["id"]] = (i, base or 1.0)
+            if len(running) >= 10:
+                for i in running:
+                    if i["id"] not in low_now:           # only learn from healthy readings
+                        v = rel.setdefault(i["id"], [])
+                        v.append(round(i["power"] / size(i) / med_w, 3))
+                        del v[:-REL_KEEP]
         lseen = state.get("low_seen", {})
-        lnew = {i["id"]: lseen.get(i["id"], 0) + 1 for i in low_now}
+        lnew = {k: lseen.get(k, 0) + 1 for k in low_now}
         state["low_seen"] = lnew
-        low = [i for i in low_now if lnew[i["id"]] >= LOW_INV_RUNS]
+        low = [low_now[k] for k in low_now if lnew[k] >= LOW_INV_RUNS]
         if low:
-            lost_eur = sum(med_w * size(i) - i["power"] for i in low) / 1000 * price / 1000
+            lost_eur = sum(base * med_w * size(i) - i["power"] for i, base in low) / 1000 * price / 1000
             if lost_eur >= MIN_LOSS_EUR:
-                problems.append(("low:" + ",".join(sorted(i["id"] for i in low)),
-                                 "Underperforming: " + ", ".join(
-                                     f"{i['id']} {i['power']/1000:.1f} kW vs expected {med_w*size(i)/1000:.1f}"
-                                     for i in low)
+                problems.append(("low:" + ",".join(sorted(i["id"] for i, _ in low)),
+                                 "Underperforming vs its own normal: " + ", ".join(
+                                     f"{i['id']} {i['power']/1000:.1f} kW (normally {base*med_w*size(i)/1000:.1f}, "
+                                     f"others {med_w*size(i)/1000:.1f})" for i, base in low)
                                  + f". Lost ≈ {lost_eur:.1f} €/h"))
     else:
         state["down_seen"] = {}
@@ -293,6 +334,10 @@ def evaluate(invs, p15, phour, elev, gti, state, now_ts):
     if should_stop and total > 1000 and day:
         problems.append(("not_stopped",
                          f"Price below {THRESHOLD:g} €/MWh but park still producing {total/1000:.1f} kW (shutdown failed?)"))
+
+    down_ids = {x for k, _ in problems if k.startswith("down:") for x in k[5:].split(",")}
+    problems = [(k, t) for k, t in problems
+                if not (k.startswith("alarm:") and set(k[6:].split(",")) <= down_ids)]
 
     ptxt = "n/a" if p15 is None else f"{p15:.1f} €/MWh (hour avg {phour:.1f})"
     report = (f"Price {ptxt} · park {total/1000:.1f} kW · {len(running)}/{len(active)} running · sun {elev:.0f}°"
