@@ -197,6 +197,75 @@ def read_inverters(ids):
     return out
 
 
+def probe():
+    """One-off discovery (--probe): dump every label/value and every link/endpoint on one inverter's pages,
+    so we can see which fields (strings, voltages, currents, temperatures ...) the portal offers.
+    Read-only; skips anything that looks like a command. Writes fimer_probe.txt (no credentials)."""
+    import urllib.parse
+    ids = login()
+    inv = ids[0]
+    out = [f"probe {datetime.now(timezone.utc).isoformat()} inverters={len(ids)} first={inv.split('-')[0]}"]
+    seen_urls = set()
+
+    def dump(name, html):
+        s = BeautifulSoup(html, "html.parser")
+        out.append(f"\n=== {name} ({len(html)} bytes) title={s.title.get_text(strip=True) if s.title else ''}")
+        pairs = []
+        for lab in s.find_all("label"):
+            td = lab.find_parent("td")
+            nxt = td.find_next_sibling("td") if td else None
+            k = lab.get_text(" ", strip=True)
+            v = nxt.get_text(" ", strip=True).replace("\xa0", " ") if nxt else ""
+            if k:
+                pairs.append(f"{k} = {v}")
+        out.append("-- label/value pairs (%d):" % len(pairs))
+        out.extend(pairs[:300])
+        rows = []
+        for tr in s.find_all("tr"):
+            cells = [c.get_text(" ", strip=True).replace("\xa0", " ") for c in tr.find_all(["td", "th"])]
+            cells = [c for c in cells if c]
+            if len(cells) >= 2:
+                rows.append(" | ".join(cells)[:200])
+        out.append("-- table rows (%d):" % len(rows))
+        out.extend(sorted(set(rows), key=rows.index)[:300])
+        links = set()
+        for el in s.find_all(True):
+            for a in ("href", "action", "src", "onclick", "data-url", "data-href", "data-target", "data-page", "data-tab"):
+                v = el.get(a)
+                if v and ("php" in v or "ajax" in v.lower() or a.startswith("data-")):
+                    links.add(f"{el.name}[{a}]={v[:160]}")
+        for sc in s.find_all("script"):
+            for m in re.findall(r"[\w./\-]+\.php[\w?=&.\-/]*", sc.get_text() or ""):
+                links.add("script:" + m[:160])
+        out.append("-- links/endpoints (%d):" % len(links))
+        out.extend(sorted(links)[:200])
+        tabs = [t.get_text(" ", strip=True) for t in s.find_all(attrs={"role": "tab"})]
+        tabs += [t.get_text(" ", strip=True) for t in s.select("[class*=tab] a, [class*=tab] li, .nav a")]
+        out.append("-- tab/menu texts: " + " | ".join(sorted(set(t for t in tabs if t)))[:600])
+        return links
+
+    r = S.post(BASE + "inv.php", data={"InvID": inv}, timeout=30)
+    links = dump("inv.php", r.text)
+    bad = re.compile(r"set|save|updat|delet|logout|reset|writ|command|remote|ctrl|control|switch|login|firmware|upgrade|add|edit|clear|stop|start", re.I)
+    todo = []
+    for l in sorted(links):
+        m = re.search(r"([\w./\-]+\.php[\w?=&.\-/]*)", l)
+        if m:
+            p = m.group(1).lstrip("./")
+            if "://" not in p and p.split("?")[0] not in ("inv.php", "park.php") and not bad.search(p) and p not in seen_urls:
+                seen_urls.add(p)
+                todo.append(p)
+    for p in todo[:10]:
+        try:
+            url = BASE + p
+            r2 = S.post(url, data={"InvID": inv}, timeout=30)
+            dump(f"POST {p}", r2.text)
+        except Exception as e:
+            out.append(f"\n=== {p} error {e}")
+    open("fimer_probe.txt", "w").write("\n".join(out)[:150000] + "\n")
+    print("probe written", len(out), "lines")
+
+
 def load_state():
     try:
         return json.load(open(STATE_FILE))
@@ -444,6 +513,9 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--probe" in sys.argv:
+        probe()
+        sys.exit(0)
     if "--test" in sys.argv:
         tg("🔔 Kairiškiai solar watchdog connected (v2: sun check, stale data, missing inverters, daily table). Quiet hours 21:00–07:00 active.", force=True)
     main()
