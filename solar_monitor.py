@@ -18,6 +18,7 @@ Every alert shows the estimated money lost per hour.
 --test sends a "connected" message first.
 """
 import hashlib, json, math, os, re, statistics, sys, time
+from zoneinfo import ZoneInfo
 from datetime import datetime, timezone, timedelta
 import requests
 from bs4 import BeautifulSoup
@@ -64,6 +65,7 @@ LAT, LON = 55.98, 22.37   # approx. Kairiškiai area; adjust if needed
 STATE_FILE = os.environ.get("STATE_FILE", "solar_state.json")
 DAILY_ELEV = float(os.environ.get("DAILY_ELEV", "-4"))      # daily table when the sun is this far below the horizon (~25-35 min after sunset)
 DAILY_DONE = os.environ.get("DAILY_DONE", "solar_daily_done.txt")
+DAILY_CAP_MIN = int(os.environ.get("DAILY_CAP_MIN", str(20 * 60 + 45)))   # latest start of the summary: 20:45 Vilnius (quiet hours begin 21:00)
 
 S = requests.Session()
 S.headers["User-Agent"] = "Mozilla/5.0 (solar-watchdog)"
@@ -528,6 +530,15 @@ def daily_summary(invs, now, state):
     return "\n".join(lines)
 
 
+def daily_time(now, elev):
+    """True when the evening summary is due: sun far enough below the horizon (~30 min after sunset),
+    or - in summer, when that would fall in quiet hours - from 20:45 Vilnius time (sent 20:45-20:59)."""
+    if elev <= DAILY_ELEV and now.hour >= 11:
+        return True
+    loc = now.astimezone(ZoneInfo("Europe/Vilnius"))
+    return now.hour >= 11 and DAILY_CAP_MIN <= loc.hour * 60 + loc.minute < 21 * 60
+
+
 def main():
     now = datetime.now(timezone.utc)
     elev = sun_elevation(now)
@@ -538,7 +549,7 @@ def main():
         print("flush error", e)
     daily = "--daily" in sys.argv
     auto_daily = False
-    if not daily and elev <= DAILY_ELEV and now.hour >= 11:      # evening, after sunset
+    if not daily and daily_time(now, elev):                      # evening, after sunset (or the 20:45 cap)
         try:
             done = open(DAILY_DONE).read().strip()
         except Exception:
