@@ -45,11 +45,22 @@ jobs:
         run: |
           git config user.name "solar-watchdog"
           git config user.email "actions@github.com"
+          # sync_code: successors are queued at the start of the previous run, so checkout gave them a stale commit
+          sync_code() { git fetch -q --depth=1 origin main && git reset -q --hard FETCH_HEAD || true; }
+          # save: never rebase. Move HEAD to the newest origin/main (worktree untouched), commit only our own files, push; retry on races
           save() {
-            for f in solar_state.json solar_daily_done.txt held_solar.json fimer_probe.txt; do
-              if [ -e "$f" ] || git ls-files --error-unmatch "$f" >/dev/null 2>&1; then git add -A -- "$f"; fi
+            for i in 1 2 3; do
+              if git fetch -q --depth=1 origin main && git reset -q FETCH_HEAD; then
+                for f in solar_state.json solar_daily_done.txt held_solar.json fimer_probe.txt; do
+                  if [ -e "$f" ] || git ls-files --error-unmatch "$f" >/dev/null 2>&1; then git add -A -- "$f"; fi
+                done
+                if git diff --cached --quiet; then return 0; fi
+                if git commit -q -m state && git push -q origin HEAD:main; then return 0; fi
+              fi
+              sleep $((i * 7))
             done
-            git diff --cached --quiet || (git commit -m "state" -q && git pull --rebase -q && git push -q) || true
+            echo "save failed after 3 tries"
+            return 0
           }
           quiet_ok() { h=$(TZ=Europe/Vilnius date +%-H); [ "$h" -ge 7 ] && [ "$h" -lt 21 ]; }
           watch() {
@@ -59,6 +70,7 @@ jobs:
               if quiet_ok; then curl -s "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" --data-urlencode "text=⚠️ Hidro monitor (Rakiškės HE) had stopped - it was restarted automatically." > /dev/null || true; fi
             fi
           }
+          sync_code
           if [ -n "$ARGS" ]; then
             python solar_monitor.py $ARGS || true
             save
@@ -66,6 +78,7 @@ jobs:
           fi
           # loop mode: queue the successor now (it waits for this run to end), then check every 10 min
           gh workflow run solar.yml || true
+          trap 'save; exit 0' INT TERM   # a cancel/restart keeps the latest state
           end=$(( $(date +%s) + 20400 ))
           n=0
           while [ "$(date +%s)" -lt "$end" ]; do
@@ -73,6 +86,6 @@ jobs:
             n=$((n+1))
             if [ $((n % 6)) -eq 0 ]; then save; fi
             if [ $((n % 3)) -eq 0 ]; then watch; fi
-            sleep 600
+            sleep 600 & wait $!
           done
           save
