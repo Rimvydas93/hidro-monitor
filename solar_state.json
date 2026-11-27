@@ -1,6 +1,6 @@
 {
- "last_run": "2026-11-27T19:03:36.821157+00:00",
- "last_report": "Price 326.4 \u20ac/MWh (hour avg 303.3) \u00b7 park 0.0 kW \u00b7 0/15 running \u00b7 sun -40\u00b0 \u00b7 0 W/m\u00b2",
+ "last_run": "2026-11-27T20:04:15.881132+00:00",
+ "last_report": "Price 301.9 \u20ac/MWh (hour avg 265.6) \u00b7 park 0.0 kW \u00b7 0/15 running \u00b7 sun -47\u00b0 \u00b7 0 W/m\u00b2",
  "seen": {
   "057617": {
    "t": "27/11/2026 20:34:39 (Europe/Vilnius)",
