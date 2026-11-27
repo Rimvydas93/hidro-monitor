@@ -517,7 +517,8 @@ def daily_summary(invs, now, state):
     flagged = [(a, b) for a, b in rows if nmed > 0 and norm[a] < LEAGUE_LOW * nmed]
     lines = [f"📊 <b>Kairiškiai solar park</b> – {now.strftime('%Y-%m-%d')}",
              f"Total {total:.0f} kWh · typical inverter {nmed:.1f} kWh · "
-             f"best {max(norm.values()):.1f} · worst {min(norm.values()):.1f}"]
+             f"best {max(norm.values()):.1f} ({max(norm, key=norm.get)[-3:]}) · "
+             f"worst {min(norm.values()):.1f} ({min(norm, key=norm.get)[-3:]})"]
     big = sorted(a for a, v in sz.items() if v > 1.0)
     if big:
         lines.append("Big units (×size): " + ", ".join(f"{a} ×{sz[a]:.0f}" for a in big))
